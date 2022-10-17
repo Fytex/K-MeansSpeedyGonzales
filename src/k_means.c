@@ -3,7 +3,8 @@
 #include <stddef.h>
 #include <string.h>
 
-
+#define N 10000000
+#define K 4
 
 
 typedef struct Point
@@ -102,7 +103,7 @@ Point get_mean(Point * points, size_t count)
 }
 
 
-Point * reevaluate_centers(Point * clusters_center, size_t clusters_count, ClustersInfo clusters_info)
+Point * reevaluate_centers(size_t clusters_count, ClustersInfo clusters_info)
 {
     Point * new_clusters_center = malloc(clusters_count * sizeof(Point));
 
@@ -163,7 +164,7 @@ Output find_centers(Point * sample, size_t size, Point * clusters_center, size_t
 
         cluster_points(sample, size, clusters_center, clusters_count, clusters_info);
 
-        Point * new_clusters_center = reevaluate_centers(clusters_center, clusters_count, clusters_info);
+        Point * new_clusters_center = reevaluate_centers(clusters_count, clusters_info);
 
         finished = has_converged(clusters_center, new_clusters_center, clusters_count);
 
@@ -189,9 +190,6 @@ Output find_centers(Point * sample, size_t size, Point * clusters_center, size_t
 
 int main(void)
 {
-    size_t N = 10000000;
-    size_t K = 4;
-
     Point * sample = malloc(N * sizeof(Point));
     Point * clusters_center = malloc(K * sizeof(Point));
 
