@@ -28,11 +28,11 @@ typedef struct Output
 
 
 
-void init(Point * sample, size_t size, Point * clusters_center, size_t clusters_count)
+void init(Point * sample, Point * clusters_center)
 {
     srand(10);
 
-    for (size_t i = 0; i < size; i++)
+    for (size_t i = 0; i < N; i++)
     {
         float x = (float) rand() / RAND_MAX;
         float y = (float) rand() / RAND_MAX;
@@ -46,7 +46,7 @@ void init(Point * sample, size_t size, Point * clusters_center, size_t clusters_
         sample[i] = point;
     }
 
-    for (size_t i = 0; i < clusters_count; i++)
+    for (size_t i = 0; i < K; i++)
         clusters_center[i] = sample[i];
 }
 
@@ -58,9 +58,9 @@ double get_sq_euclidean_dist(Point a, Point b)
     return dx * dx + dy * dy;
 }
 
-void cluster_points(Point * sample, size_t size, Point * clusters_center, size_t clusters_count, ClustersInfo clusters_info)
+void cluster_points(Point * sample, Point * clusters_center, ClustersInfo clusters_info)
 {
-    for (size_t i = 0; i < size; i++)
+    for (size_t i = 0; i < N; i++)
     {
         Point point = sample[i];
 
@@ -68,7 +68,7 @@ void cluster_points(Point * sample, size_t size, Point * clusters_center, size_t
         double best_cluster_dist = get_sq_euclidean_dist(clusters_center[0], point);
         
 
-        for (size_t j = 1; j < clusters_count; j++)
+        for (size_t j = 1; j < K; j++)
         {
             double cluster_dist = get_sq_euclidean_dist(clusters_center[j], point);
             if (cluster_dist < best_cluster_dist)
@@ -103,27 +103,27 @@ Point get_mean(Point * points, size_t count)
 }
 
 
-Point * reevaluate_centers(size_t clusters_count, ClustersInfo clusters_info)
+Point * reevaluate_centers(ClustersInfo clusters_info)
 {
-    Point * new_clusters_center = malloc(clusters_count * sizeof(Point));
+    Point * new_clusters_center = malloc(K * sizeof(Point));
 
-    for (size_t i = 0; i < clusters_count; i++)
+    for (size_t i = 0; i < K; i++)
         new_clusters_center[i] = get_mean(clusters_info.clusters[i], clusters_info.sizes[i]);
 
     return new_clusters_center;
 }
 
 
-int has_converged(Point * clusters_center, Point * new_clusters_center, size_t clusters_count)
+int has_converged(Point * clusters_center, Point * new_clusters_center)
 {
-    int * used_list = calloc(clusters_count, sizeof(int));
+    int * used_list = calloc(K, sizeof(int));
     size_t success_cmp = 0;
 
-    for (size_t i = 0; i < clusters_count; i++)
+    for (size_t i = 0; i < K; i++)
     {
         Point point = clusters_center[i];
 
-        for (size_t j = 0; j < clusters_count; j++)
+        for (size_t j = 0; j < K; j++)
         {
             Point new_point = new_clusters_center[j];
 
@@ -138,20 +138,20 @@ int has_converged(Point * clusters_center, Point * new_clusters_center, size_t c
     }
 
     free(used_list);
-    return success_cmp == clusters_count;
+    return success_cmp == K;
 }
 
 
-Output find_centers(Point * sample, size_t size, Point * clusters_center, size_t clusters_count)
+Output find_centers(Point * sample, Point * clusters_center)
 {
     int finished;
     size_t iterations = 0;
 
-    Point ** clusters = malloc(clusters_count * sizeof(Point *));
-    for (size_t i = 0; i < clusters_count; i++)
-        clusters[i] = malloc(size * sizeof(Point));
+    Point ** clusters = malloc(K * sizeof(Point *));
+    for (size_t i = 0; i < K; i++)
+        clusters[i] = malloc(N * sizeof(Point));
     
-    size_t * clusters_size = malloc(clusters_count * sizeof(size_t));
+    size_t * clusters_size = malloc(K * sizeof(size_t));
 
     ClustersInfo clusters_info =
     {
@@ -160,13 +160,13 @@ Output find_centers(Point * sample, size_t size, Point * clusters_center, size_t
     };
 
     do {
-        memset(clusters_size, 0, clusters_count * sizeof(size_t));
+        memset(clusters_size, 0, K * sizeof(size_t));
 
-        cluster_points(sample, size, clusters_center, clusters_count, clusters_info);
+        cluster_points(sample, clusters_center, clusters_info);
 
-        Point * new_clusters_center = reevaluate_centers(clusters_count, clusters_info);
+        Point * new_clusters_center = reevaluate_centers(clusters_info);
 
-        finished = has_converged(clusters_center, new_clusters_center, clusters_count);
+        finished = has_converged(clusters_center, new_clusters_center);
 
         free(clusters_center);
         clusters_center = new_clusters_center;
@@ -193,11 +193,11 @@ int main(void)
     Point * sample = malloc(N * sizeof(Point));
     Point * clusters_center = malloc(K * sizeof(Point));
 
-    init(sample, N, clusters_center, K);
+    init(sample, clusters_center);
 
-    Output output = find_centers(sample, N, clusters_center, K);
+    Output output = find_centers(sample, clusters_center);
 
-    printf("N = %ld, K = %ld\n", N, K);
+    printf("N = %d, K = %d\n", N, K);
 
     for (size_t i = 0; i < K; i++)
     {
