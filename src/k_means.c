@@ -15,7 +15,7 @@ typedef struct Point
 
 typedef struct ClustersInfo
 {
-    Point * acc_points;
+    Point * sum_points;
     size_t * sizes;
 } ClustersInfo;
 
@@ -50,48 +50,60 @@ void init(Point * sample, Point * clusters_center)
         clusters_center[i] = sample[i];
 }
 
-double get_sq_euclidean_dist(Point a, Point b)
+float get_sq_euclidean_dist(Point a, Point b)
 {
-    double dx = (a.x - b.x);
-    double dy = (a.y - b.y);
+    float dx = (a.x - b.x);
+    float dy = (a.y - b.y);
 
     return dx * dx + dy * dy;
 }
 
-void cluster_points(Point * sample, Point * clusters_center, ClustersInfo clusters_info)
+void cluster_points(Point * restrict sample, Point * restrict clusters_center, ClustersInfo clusters_info)
 {
-    float * dists = malloc(K * sizeof(float));
-
     for (size_t i = 0; i < N; i++)
     {
         Point point = sample[i];
 
-        for (size_t j = 0; j < K; j++)
-        {
-            dists[j] = get_sq_euclidean_dist(clusters_center[j], point);
-        }
-
         size_t best_cluster = 0;
-        double best_cluster_dist = dists[0];
+        float best_cluster_dist = get_sq_euclidean_dist(clusters_center[0], point);
+        
 
         for (size_t j = 1; j < K; j++)
         {
-            if (dists[j] < best_cluster_dist)
+            float cluster_dist = get_sq_euclidean_dist(clusters_center[j], point);
+            if (cluster_dist < best_cluster_dist)
             {
                 best_cluster = j;
-                best_cluster_dist = dists[j];
+                best_cluster_dist = cluster_dist;
             }
-
-        clusters_info.acc_points[best_cluster].x += point.x;
-        clusters_info.acc_points[best_cluster].y += point.y;
-        clusters_info.sizes[best_cluster]++;
         }
-    }   
 
-    free(dists);
+        clusters_info.sum_points[best_cluster].x += point.x;
+        clusters_info.sum_points[best_cluster].y += point.y;
+        //clusters_info.clusters[best_cluster][clusters_info.sizes[best_cluster]] = point;
+        clusters_info.sizes[best_cluster]++;
+        
+    }   
 }
 
+/*
+Point get_mean(Point * points, size_t count)
+{
+    float x = 0, y = 0; 
 
+    for (size_t i = 0; i < count; i++)
+    {
+        x += points[i].x;
+        y += points[i].y;
+    }
+
+    return (Point){
+        .x = x / count,
+        .y = y / count
+    };
+    
+}
+*/
 
 Point * reevaluate_centers(ClustersInfo clusters_info)
 {
@@ -99,9 +111,11 @@ Point * reevaluate_centers(ClustersInfo clusters_info)
 
     for (size_t i = 0; i < K; i++)
         new_clusters_center[i] = (Point) {
-            .x = clusters_info.acc_points[i].x / clusters_info.sizes[i],
-            .y = clusters_info.acc_points[i].x / clusters_info.sizes[i]
+            .x = clusters_info.sum_points[i].x / clusters_info.sizes[i],
+            .y = clusters_info.sum_points[i].y / clusters_info.sizes[i],
         };
+        //new_clusters_center[i] = get_mean(clusters_info.clusters[i], clusters_info.sizes[i]);
+
 
     return new_clusters_center;
 }
@@ -140,19 +154,19 @@ Output find_centers(Point * sample, Point * clusters_center)
     int finished;
     size_t iterations = 0;
 
-    Point * acc_points = malloc(K * sizeof(Point *));
-
+    Point * sum_points = malloc(K * sizeof(Point));
+    
     size_t * clusters_size = malloc(K * sizeof(size_t));
 
     ClustersInfo clusters_info =
     {
-        .acc_points = acc_points,
+        .sum_points = sum_points,
         .sizes = clusters_size
     };
 
     do {
         memset(clusters_size, 0, K * sizeof(size_t));
-        memset(acc_points, 0, K * sizeof(Point));
+        memset(sum_points, 0, K * sizeof(Point));
 
         cluster_points(sample, clusters_center, clusters_info);
 
@@ -168,7 +182,7 @@ Output find_centers(Point * sample, Point * clusters_center)
 
     iterations--; // Last iteration doesn't count because it's a verification
 
-    free(clusters_info.acc_points);
+    free(clusters_info.sum_points);
 
     Output output = {
         .clusters_center = clusters_center,
