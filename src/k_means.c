@@ -24,7 +24,8 @@ typedef struct ThreadClustersInfo
 
 typedef struct ClustersInfo
 {
-    Point * sum_points;
+    float * sum_points_x;
+    float * sum_points_y;
     int * sizes;
 } ClustersInfo;
 
@@ -59,54 +60,6 @@ void init(Point * sample, Point * clusters_center)
         clusters_center[i] = sample[i];
 }
 
-ThreadClustersInfo *  generate_array_clusters_info(void)
-{
-    ThreadClustersInfo * array_clusters_info = malloc(NUM_THREADS * sizeof(ThreadClustersInfo));
-
-    #pragma omp parallel for num_threads(NUM_THREADS)
-    for (int thread_id = 0; thread_id < NUM_THREADS; thread_id++)
-    {
-        Point ** clusters = malloc(K * sizeof(Point *));
-        for (size_t i = 0; i < K; i++)
-            clusters[i] = malloc(N * sizeof(Point));
-        
-
-        int * clusters_size = malloc(K * sizeof(int));
-
-        array_clusters_info[thread_id] = (ThreadClustersInfo)
-        {
-            .clusters = clusters,
-            .sizes = clusters_size
-        };
-    }
-
-    return array_clusters_info;
-}
-
-void init_array_clusters_info(ThreadClustersInfo * array_clusters_info)
-{
-    #pragma omp parallel for num_threads(NUM_THREADS)
-    for (int thread_id = 0; thread_id < NUM_THREADS; thread_id++)
-        memset(array_clusters_info[thread_id].sizes, 0, K * sizeof(int));
-}
-
-void free_array_clusters_info(ThreadClustersInfo * array_clusters_info)
-{
-    #pragma omp parallel for num_threads(NUM_THREADS)
-    for (int thread_id = 0; thread_id < NUM_THREADS; thread_id++)
-    {
-        Point ** clusters =array_clusters_info[thread_id].clusters;
-        for (size_t i = 0; i < K; i++)
-            free(clusters[i]);
-
-        free(clusters);
-        
-
-        free(array_clusters_info[thread_id].sizes);
-    }
-
-    free(array_clusters_info);
-}
 
 float get_sq_euclidean_dist(Point a, Point b)
 {
@@ -116,55 +69,35 @@ float get_sq_euclidean_dist(Point a, Point b)
     return dx * dx + dy * dy;
 }
 
-void cluster_points(Point * restrict sample, Point * restrict clusters_center, ThreadClustersInfo * restrict array_clusters_info)
+void cluster_points(Point * restrict sample, Point * restrict clusters_center, ClustersInfo clusters_info)
 {
-    #pragma omp parallel num_threads(NUM_THREADS)
+    int * sizes = clusters_info.sizes;
+    float * sum_points_x = clusters_info.sum_points_x;
+    float * sum_points_y = clusters_info.sum_points_y;
+
+
+    #pragma omp parallel for num_threads(NUM_THREADS) reduction(+:sum_points_x[:K]) reduction(+:sum_points_y[:K]) reduction(+:sizes[:K])
+    for (int i = 0; i < N; i++)
     {
-        int thread_id = omp_get_thread_num();
+        Point point = sample[i];
 
-        #pragma omp for
-        for (int i = 0; i < N; i++)
+        int best_cluster = 0;
+        float best_cluster_dist = get_sq_euclidean_dist(clusters_center[0], point);
+        
+
+        for (int j = 1; j < K; j++)
         {
-            Point point = sample[i];
-
-            int best_cluster = 0;
-            float best_cluster_dist = get_sq_euclidean_dist(clusters_center[0], point);
-            
-
-            for (int j = 1; j < K; j++)
+            float cluster_dist = get_sq_euclidean_dist(clusters_center[j], point);
+            if (cluster_dist < best_cluster_dist)
             {
-                float cluster_dist = get_sq_euclidean_dist(clusters_center[j], point);
-                if (cluster_dist < best_cluster_dist)
-                {
-                    best_cluster = j;
-                    best_cluster_dist = cluster_dist;
-                }
+                best_cluster = j;
+                best_cluster_dist = cluster_dist;
             }
-
-            int idx = array_clusters_info[thread_id].sizes[best_cluster]++;
-
-            array_clusters_info[thread_id].clusters[best_cluster][idx]= point;   
         }
-    }
-}
 
-
-void reduction_clusters(ThreadClustersInfo * restrict array_clusters_info, ClustersInfo clusters_info)
-{
-    for (int thread_id = 0; thread_id < NUM_THREADS; thread_id++)
-    {
-        for (int j = 0; j < K; j++)
-        {
-            int size = array_clusters_info[thread_id].sizes[j];
-
-            for (int idx = 0; idx < size; idx++)
-            {
-                clusters_info.sum_points[j].x += array_clusters_info[thread_id].clusters[j][idx].x;
-                clusters_info.sum_points[j].y += array_clusters_info[thread_id].clusters[j][idx].y;
-            }
-
-            clusters_info.sizes[j] += size;
-        }
+        sum_points_x[best_cluster] += point.x;
+        sum_points_y[best_cluster] += point.y;
+        sizes[best_cluster]++;
     }
 }
 
@@ -175,10 +108,9 @@ Point * reevaluate_centers(ClustersInfo clusters_info)
 
     for (int i = 0; i < K; i++)
         new_clusters_center[i] = (Point) {
-            .x = clusters_info.sum_points[i].x / clusters_info.sizes[i],
-            .y = clusters_info.sum_points[i].y / clusters_info.sizes[i],
+            .x = clusters_info.sum_points_x[i] / clusters_info.sizes[i],
+            .y = clusters_info.sum_points_y[i] / clusters_info.sizes[i],
         };
-        //new_clusters_center[i] = get_mean(clusters_info.clusters[i], clusters_info.sizes[i]);
 
 
     return new_clusters_center;
@@ -186,48 +118,55 @@ Point * reevaluate_centers(ClustersInfo clusters_info)
 
 
 
+
+int has_converged(Point * clusters_center, Point * new_clusters_center)
+{
+    return memcmp(clusters_center, new_clusters_center, K * sizeof(Point)) == 0 ? 1 : 0;
+}
+
+
 Output find_centers(Point * sample, Point * clusters_center)
 {
     int finished;
     int iterations = 0;
 
-    Point * sum_points = malloc(K * sizeof(Point));
+    float * sum_points_x = malloc(K * sizeof(float));
+    float * sum_points_y = malloc(K * sizeof(float));
     
     int * clusters_size = malloc(K * sizeof(int));
 
     ClustersInfo clusters_info =
     {
-        .sum_points = sum_points,
+        .sum_points_x = sum_points_x,
+        .sum_points_y = sum_points_y,
         .sizes = clusters_size
     };
 
-    ThreadClustersInfo * array_clusters_info = generate_array_clusters_info();
 
-    for (int i = 0; i < 21; i++)
-    {
-        memset(clusters_size, 0, K * sizeof(int));
-        memset(sum_points, 0, K * sizeof(Point));
+    do {
+        for (int j = 0; j < K; j++)
+        {
+            clusters_size[j] = 0;
+            sum_points_x[j] = 0;
+            sum_points_y[j] = 0;
+        }
 
-        init_array_clusters_info(array_clusters_info);
-
-        cluster_points(sample, clusters_center, array_clusters_info);
-
-        reduction_clusters(array_clusters_info, clusters_info);
+        cluster_points(sample, clusters_center, clusters_info);
 
         Point * new_clusters_center = reevaluate_centers(clusters_info);
 
-        //finished = has_converged(clusters_center, new_clusters_center);
+        finished = has_converged(clusters_center, new_clusters_center);
 
         free(clusters_center);
         clusters_center = new_clusters_center;
         ++iterations;
 
-    }
+    } while(!finished && iterations < 21);
 
     iterations--; // Last iteration doesn't count because it's a verification
 
-    free(clusters_info.sum_points);
-    free_array_clusters_info(array_clusters_info);
+    free(clusters_info.sum_points_x);
+    free(clusters_info.sum_points_y);
 
     Output output = {
         .clusters_center = clusters_center,
@@ -241,15 +180,15 @@ Output find_centers(Point * sample, Point * clusters_center)
 
 int main(int argc, char ** argv)
 {
-    if (argc != 4)
+    if (argc < 3 || argc > 4)
     {
-        printf("Valid command: ./k_means 10000000 4 2");
+        printf("Valid command: ./k_means [Points] [Clusters] [Treads : Optional]");
         return -1;
     }
 
     N = atoi(argv[1]);
     K = atoi(argv[2]);
-    NUM_THREADS = atoi(argv[3]);
+    NUM_THREADS = (argc == 4) ? atoi(argv[3]) : 1;
 
     Point * sample = malloc(N * sizeof(Point));
     Point * clusters_center = malloc(K * sizeof(Point));
@@ -262,14 +201,14 @@ int main(int argc, char ** argv)
 
     for (int i = 0; i < K; i++)
     {
-        printf("Center: (%.3f, %.3f) : Size: %ld\n", 
+        printf("Center: (%.3f, %.3f) : Size: %d\n", 
             output.clusters_center[i].x,
             output.clusters_center[i].y,
             output.clusters_size[i]
         );
     }
 
-    printf("Iterations: %ld\n", output.iterations);
+    printf("Iterations: %d\n", output.iterations);
 
     free(output.clusters_center);
     free(output.clusters_size);
