@@ -15,12 +15,6 @@ typedef struct Point
     float y;
 } Point;
 
-typedef struct ThreadClustersInfo
-{
-    Point ** clusters;
-    int * sizes;
-} ThreadClustersInfo;
-
 
 typedef struct ClustersInfo
 {
